@@ -1,0 +1,148 @@
+package cl.duoc.formativa1.items;
+
+import java.math.BigDecimal;
+import java.math.RoundingMode;
+
+import org.springframework.batch.infrastructure.item.ItemProcessor;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.stereotype.Component;
+
+import cl.duoc.formativa1.advanced.ProcessingThreadTracker;
+import cl.duoc.formativa1.business.InteresCuenta;
+
+@Component
+public class InteresProcessor
+        implements ItemProcessor<InteresCuenta, InteresCuenta> {
+
+    private static final Logger logger = LoggerFactory.getLogger(InteresProcessor.class);
+    private final ProcessingThreadTracker threadTracker;
+
+    private static final BigDecimal TASA_AHORRO =
+            new BigDecimal("0.01");
+
+    private static final BigDecimal TASA_PRESTAMO =
+            new BigDecimal("0.02");
+
+    public InteresProcessor(ProcessingThreadTracker threadTracker) {
+        this.threadTracker = threadTracker;
+    }
+
+    @Override
+    public InteresCuenta process(InteresCuenta cuenta) {
+
+        threadTracker.recordCurrentThread();
+        logger.info("[{}] Procesando registro de intereses",
+                Thread.currentThread().getName());
+
+        if (cuenta.getTipo() == null || cuenta.getTipo().isBlank()) {
+            cuenta.setTasaInteres(BigDecimal.ZERO);
+            cuenta.setInteresCalculado(BigDecimal.ZERO);
+            cuenta.setSaldoFinal(cuenta.getSaldo());
+            cuenta.setEstado("ANOMALIA");
+            cuenta.setObservacion("Tipo de cuenta vacio");
+            return cuenta;
+        }
+
+        String tipo = cuenta.getTipo()
+                .trim()
+                .toLowerCase();
+
+        cuenta.setTipo(tipo);
+
+
+        // =====================================
+        // VALIDACION DE SALDO
+        // =====================================
+
+        if (cuenta.getSaldo() == null ||
+                cuenta.getSaldo()
+                        .compareTo(BigDecimal.ZERO) <= 0) {
+
+            cuenta.setTasaInteres(BigDecimal.ZERO);
+            cuenta.setInteresCalculado(BigDecimal.ZERO);
+            cuenta.setSaldoFinal(cuenta.getSaldo());
+
+            cuenta.setEstado("ANOMALIA");
+            cuenta.setObservacion(
+                    "Saldo debe ser mayor que cero");
+
+            return cuenta;
+        }
+
+
+        // =====================================
+        // CUENTA DE AHORRO
+        // =====================================
+
+        if ("ahorro".equals(tipo)) {
+
+            calcularInteres(
+                    cuenta,
+                    TASA_AHORRO);
+
+            cuenta.setEstado("PROCESADA");
+            cuenta.setObservacion(
+                    "Interés de ahorro aplicado");
+
+            return cuenta;
+        }
+
+
+        // =====================================
+        // CUENTA DE PRESTAMO
+        // =====================================
+
+        if ("prestamo".equals(tipo)) {
+
+            calcularInteres(
+                    cuenta,
+                    TASA_PRESTAMO);
+
+            cuenta.setEstado("PROCESADA");
+            cuenta.setObservacion(
+                    "Interés de préstamo aplicado");
+
+            return cuenta;
+        }
+
+
+        // =====================================
+        // TIPO NO VALIDO
+        // =====================================
+
+        cuenta.setTasaInteres(BigDecimal.ZERO);
+        cuenta.setInteresCalculado(BigDecimal.ZERO);
+        cuenta.setSaldoFinal(cuenta.getSaldo());
+
+        cuenta.setEstado("ANOMALIA");
+        cuenta.setObservacion(
+                "Tipo de cuenta no válido para este proceso");
+
+        return cuenta;
+    }
+
+
+    private void calcularInteres(
+            InteresCuenta cuenta,
+            BigDecimal tasa) {
+
+        BigDecimal interes =
+                cuenta.getSaldo()
+                        .multiply(tasa)
+                        .setScale(
+                                2,
+                                RoundingMode.HALF_UP);
+
+        BigDecimal saldoFinal =
+                cuenta.getSaldo()
+                        .add(interes)
+                        .setScale(
+                                2,
+                                RoundingMode.HALF_UP);
+
+        cuenta.setTasaInteres(tasa);
+        cuenta.setInteresCalculado(interes);
+        cuenta.setSaldoFinal(saldoFinal);
+    }
+}
